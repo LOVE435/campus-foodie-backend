@@ -17,19 +17,24 @@ router.post('/draw', (req: AuthRequest, res: Response) => {
   const noRepeatDays = db.prepare('SELECT no_repeat_days FROM users WHERE id = ?').get(userId) as any;
   const days = noRepeatDays?.no_repeat_days || 3;
 
-  let sql = 'SELECT f.*, c.name as canteen_name, w.name as window_name FROM foods f JOIN canteens c ON f.canteen_id = c.id JOIN windows w ON f.window_id = w.id WHERE f.status = \'active\' AND f.meal_types LIKE \'%"' + mealType + '"%\' ';
+  const params: any[] = [];
+  let sql = `SELECT f.*, c.name as canteen_name, w.name as window_name FROM foods f JOIN canteens c ON f.canteen_id = c.id JOIN windows w ON f.window_id = w.id WHERE f.status = 'active' AND f.meal_types LIKE ? `;
+  params.push(`%"${mealType}"%`);
 
   if (source === 'liked') {
-    sql += ' AND EXISTS (SELECT 1 FROM likes WHERE food_id = f.id AND user_id = ' + userId + ')';
+    sql += ' AND EXISTS (SELECT 1 FROM likes WHERE food_id = f.id AND user_id = ?)';
+    params.push(userId);
   } else if (source === 'mine') {
-    sql += ' AND f.creator_id = ' + userId;
+    sql += ' AND f.creator_id = ?';
+    params.push(userId);
   } else {
     sql += ' AND f.is_public = 1';
   }
 
   if (excludeTags && excludeTags.length > 0) {
     for (const tag of excludeTags) {
-      sql += ' AND f.tags NOT LIKE \'%"' + tag + '"%\'';
+      sql += ' AND f.tags NOT LIKE ?';
+      params.push(`%"${tag}"%`);
     }
   }
 
@@ -38,11 +43,12 @@ router.post('/draw', (req: AuthRequest, res: Response) => {
   ).all(userId, `-${days} days`) as any[];
 
   if (recentFoodIds.length > 0) {
-    const ids = recentFoodIds.map((r: any) => r.food_id).join(',');
-    sql += ` AND f.id NOT IN (${ids})`;
+    const placeholders = recentFoodIds.map(() => '?').join(',');
+    sql += ` AND f.id NOT IN (${placeholders})`;
+    params.push(...recentFoodIds.map((r: any) => r.food_id));
   }
 
-  const foods = db.prepare(sql).all() as any[];
+  const foods = db.prepare(sql).all(...params) as any[];
 
   if (foods.length === 0) {
     return res.json({ food: null, message: '没有符合条件的食物，试试扩大范围' });
@@ -82,22 +88,29 @@ router.post('/batch', (req: AuthRequest, res: Response) => {
 
   for (const meal of meals) {
     const source = sources?.[meal] || 'all';
-    let sql = `SELECT f.*, c.name as canteen_name, w.name as window_name FROM foods f JOIN canteens c ON f.canteen_id = c.id JOIN windows w ON f.window_id = w.id WHERE f.status = 'active' AND f.meal_types LIKE '%"${meal}"%' `;
+    const params: any[] = [];
+
+    let sql = `SELECT f.*, c.name as canteen_name, w.name as window_name FROM foods f JOIN canteens c ON f.canteen_id = c.id JOIN windows w ON f.window_id = w.id WHERE f.status = 'active' AND f.meal_types LIKE ? `;
+    params.push(`%"${meal}"%`);
 
     if (source === 'liked') {
-      sql += ` AND EXISTS (SELECT 1 FROM likes WHERE food_id = f.id AND user_id = ${userId})`;
+      sql += ' AND EXISTS (SELECT 1 FROM likes WHERE food_id = f.id AND user_id = ?)';
+      params.push(userId);
     } else if (source === 'mine') {
-      sql += ` AND f.creator_id = ${userId}`;
+      sql += ' AND f.creator_id = ?';
+      params.push(userId);
     } else {
       sql += ' AND f.is_public = 1';
     }
 
     const excludeIds = [...recentIds, ...usedIds].filter(Boolean);
     if (excludeIds.length > 0) {
-      sql += ` AND f.id NOT IN (${excludeIds.join(',')})`;
+      const placeholders = excludeIds.map(() => '?').join(',');
+      sql += ` AND f.id NOT IN (${placeholders})`;
+      params.push(...excludeIds);
     }
 
-    const foods = db.prepare(sql).all() as any[];
+    const foods = db.prepare(sql).all(...params) as any[];
 
     if (foods.length > 0) {
       const food = foods[Math.floor(Math.random() * foods.length)];

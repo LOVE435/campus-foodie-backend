@@ -9,6 +9,7 @@ router.get('/', (req: AuthRequest, res: Response) => {
   const offset = (Number(page) - 1) * Number(pageSize);
   const limit = Number(pageSize);
 
+  const params: any[] = [];
   let sql = `
     SELECT f.id, f.name, f.likes_count, f.meal_types, f.tags,
            c.name as canteen_name, w.name as window_name
@@ -19,13 +20,16 @@ router.get('/', (req: AuthRequest, res: Response) => {
   `;
 
   if (canteen_id) {
-    sql += ` AND f.canteen_id = ${Number(canteen_id)}`;
+    sql += ' AND f.canteen_id = ?';
+    params.push(Number(canteen_id));
   }
   if (meal_type) {
-    sql += ` AND f.meal_types LIKE '%"${meal_type}"%'`;
+    sql += ' AND f.meal_types LIKE ?';
+    params.push(`%"${meal_type}"%`);
   }
   if (tag) {
-    sql += ` AND f.tags LIKE '%"${tag}"%'`;
+    sql += ' AND f.tags LIKE ?';
+    params.push(`%"${tag}"%`);
   }
 
   if (type === 'total') {
@@ -34,9 +38,10 @@ router.get('/', (req: AuthRequest, res: Response) => {
     sql += ' ORDER BY f.likes_count DESC, f.id DESC';
   }
 
-  sql += ` LIMIT ${limit} OFFSET ${offset}`;
+  sql += ' LIMIT ? OFFSET ?';
+  params.push(limit, offset);
 
-  const foods = db.prepare(sql).all() as any[];
+  const foods = db.prepare(sql).all(...params) as any[];
   const list = foods.map((f: any, index: number) => ({
     rank: offset + index + 1,
     id: f.id,
@@ -64,12 +69,11 @@ router.get('/canteens', (_req: AuthRequest, res: Response) => {
 
 router.get('/windows', (req: AuthRequest, res: Response) => {
   const { canteen_id } = req.query;
-  let sql = 'SELECT * FROM windows';
   if (canteen_id) {
-    sql += ` WHERE canteen_id = ${Number(canteen_id)}`;
+    const windows = db.prepare('SELECT * FROM windows WHERE canteen_id = ? ORDER BY id').all(Number(canteen_id));
+    return res.json({ list: windows });
   }
-  sql += ' ORDER BY id';
-  const windows = db.prepare(sql).all();
+  const windows = db.prepare('SELECT * FROM windows ORDER BY id').all();
   return res.json({ list: windows });
 });
 
